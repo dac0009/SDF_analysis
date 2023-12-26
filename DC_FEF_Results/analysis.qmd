@@ -1,0 +1,215 @@
+---
+title: "SOC Response to Long-term SFM Practices"
+description: "FEF Soil Density Fractionation Experiment"
+author: 
+  name: Dominick Cifelli^1^, Brooke Eastman^2^, Ben Rau^3^, Edward Brzostek^1^
+  affiliation: Department of Biology, West Virginia University^1^  Division of Forestry, West Virginia University^2^  Northern Research Station, USDA Forest Service^3^
+title-block-banner: "#FAF8FD"
+title-block-banner-color: "#046A38"
+backgroundcolor: "#FAF8FD"
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-copy: true
+    toc: true
+    number-sections: false
+editor: visual
+execute:
+  echo: fenced
+  warning: false
+  output: true
+---
+
+::: panel-tabset
+#### Part 1 - Using the entire data set
+
++--------------+-------------------------------------+------------------------------------+
+| Watershed    | Treatment                           | Rotation                           |
++:============:+:===================================:+:==================================:+
+| WS1          | Commercial Clear Cut                | 1957/58                            |
+|              |                                     |                                    |
+|              | Urea                                | 1971                               |
++--------------+-------------------------------------+------------------------------------+
+| WS2          | 17in. dbh Diameter Limit Harvesting | 1958,1973,1988,2003,2018?          |
+|              |                                     |                                    |
+|              |                                     | \~15 year cutting cycle            |
++--------------+-------------------------------------+------------------------------------+
+| WS4          | Reference, Undisturbed              | 1951                               |
++--------------+-------------------------------------+------------------------------------+
+| WS5          | Single-tree Selection Harvesting    | 1958,1968,1978,1988,1998,2008,2018 |
+|              |                                     |                                    |
+|              |                                     | \~10 year cutting cycle            |
++--------------+-------------------------------------+------------------------------------+
+
+: Table 1. Experimental Watersheds at the FEF
+
+::: {.callout-warning collapse="true" appearance="minimal"}
+## Expand to learn more about the dataset!
+
+Eddie said to get rid of the fire plots since they're kind of messing everything up so none of that is included with this analysis. Furthermore, **WS5-6 is removed** since it was collected in a sub-compartment that was cut on a different harvesting cycle. Data is split into up and down for each depth (0-20cm & 20-40cm).
+:::
+
+```{r, Packages, warning=FALSE}
+
+library(tidyverse) # year
+library(dplyr) # select, pipes
+library(plyr) # mutate
+library(readxl)
+library(nlme) # lme
+library(piecewiseSEM) # rsquared
+library(car) # Anova
+library(predictmeans) # CookD
+
+# Custom theme to see everything better
+my_theme <- theme(axis.line.x = element_line(linewidth = 0.5, colour = "black"), 
+                  axis.line.y = element_line(linewidth = 0.5, colour = "black"),
+                  axis.line = element_line(linewidth = 1, colour = "black"), panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(), panel.border = element_blank(),  
+                  panel.background = element_blank(), text=element_text(size = 14),
+                  axis.text.x=element_text(colour="black", size = 14),
+                  axis.text.y=element_text(colour="black", size = 14), 
+                  legend.title = element_blank(),legend.key=element_blank())
+```
+
+```{r, Data}
+
+# read in the data
+raw180_dat <- read_excel("SDF_results.xlsx", sheet = "180_data")
+
+# Remove the fire plots & WS5-6 -- See the call out above for more info! 
+statdat <- raw180_dat %>%
+  filter(!watershed == "F381") %>%
+  filter(!SampleID == c(139:144))
+
+```
+
+```{r, model1}
+
+# model the data
+# linear mixed effects model with nested random effects 
+BC.m1 <- lme(BulkC_gm2 ~ watershed, random = ~1|plot/subplot, data = statdat, na.action = na.exclude)
+
+# Save the residuals to the datatable
+statdat$resid_BC.m1<-residuals(BC.m1, type = "normalized")
+
+```
+
+::: {.callout-warning collapse="true" appearance="minimal"}
+## READ ME!
+
+The next code chunk plots cook's distance to check for outliers. If Cook's distance \> 1, that point may be considered an outlier !! I read that above 0.5 could also be considered an outlier? Just something to consider...
+
+**IMPORTANT:**
+
+**The Highest Value on the y-axis is 0.10. Does this mean there aren't outliers or is the distance value subjective to the data set your working with?? The three identified samples are; 49, 53, 91 (WS2, WS2, WS4)**
+:::
+
+```{r, cooks distance test}
+CookD(BC.m1)
+```
+
+![Cooks Distance Test Results (entire dataset)](cook_results/model1.png){fig-align="center"}
+
+**I did not remove any "outliers" because I am not sure what is considered an outlier given the values on the y-axis aren't close to 1**
+
+```{r, stats}
+# do the ANOVA on the model
+Anova(BC.m1)
+
+# R2 value
+rsquared(BC.m1) 
+
+# residuals vs fitted values
+plot(BC.m1)
+
+# Check normality of residuals
+par(mfrow=c(1,2))
+qqPlot(BC.m1$residuals, distribution = "norm", main = "Bulk Carbon Model")
+hist(statdat$BulkC_gm2) # possible outliers
+
+# Boxplot of residuals by fixed effect
+ggplot(statdat, aes(x = watershed, y = resid_BC.m1))+
+  geom_boxplot()+
+  ggtitle("Residuals by Watershed") +
+  my_theme
+
+```
+
+#### Part 2 - 0-20cm
+
+```{r, 0-20cm Analysis}
+
+up_dat <- statdat %>%
+  filter(depth == "0-20")
+
+# model the data
+# linear mixed effects model with nested random effects 
+BC.m2 <- lme(BulkC_gm2 ~ watershed, random = ~1|plot/subplot, data = up_dat, na.action = na.exclude)
+
+# Save the residuals to the datatable
+up_dat$resid_BC.m2 <-residuals(BC.m2, type = "normalized")
+
+# do the ANOVA on the model
+Anova(BC.m2)
+
+# R2 value
+rsquared(BC.m2) 
+
+# residuals vs fitted values
+plot(BC.m2)
+
+# Check normality of residuals
+par(mfrow=c(1,2))
+qqPlot(BC.m2$residuals, distribution = "norm", main = "Bulk Carbon Model")
+hist(up_dat$BulkC_gm2)
+
+# Boxplot of residuals by fixed effect
+ggplot(up_dat, aes(x = watershed, y = resid_BC.m2))+
+  geom_boxplot()+
+  ggtitle("Residuals by Watershed (0-20cm)") +
+  my_theme
+
+```
+
+![Cooks Distance Test (0-20cm)](cook_results/model2.png){fig-align="center"}
+
+#### Part 3 - 20-40cm
+
+```{r, 20-40cm Analysis}
+
+down_dat <- statdat %>%
+  filter(depth == "20-40")
+
+# model the data
+# linear mixed effects model with nested random effects 
+BC.m3 <- lme(BulkC_gm2 ~ watershed, random = ~1|plot/subplot, data = down_dat, na.action = na.exclude)
+
+# Save the residuals to the datatable
+down_dat$resid_BC.m3 <-residuals(BC.m3, type = "normalized")
+
+# do the ANOVA on the model
+Anova(BC.m3)
+
+# R2 value
+rsquared(BC.m3) 
+
+# residuals vs fitted values
+plot(BC.m3)
+
+# Check normality of residuals
+par(mfrow=c(1,2))
+qqPlot(BC.m3$residuals, distribution = "norm", main = "Bulk Carbon Model")
+hist(down_dat$BulkC_gm2)
+
+# Boxplot of residuals by fixed effect
+ggplot(down_dat, aes(x = watershed, y = resid_BC.m3))+
+  geom_boxplot()+
+  ggtitle("Residuals by Watershed (20-40cm)") +
+  my_theme
+
+
+```
+
+![Cooks Distance Test (20-40cm)](cook_results/model3.png){fig-align="center"}
+:::

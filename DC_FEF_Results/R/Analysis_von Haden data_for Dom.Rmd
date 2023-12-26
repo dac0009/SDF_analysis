@@ -1,0 +1,123 @@
+---
+title: "Analysis_von Haden data"
+author: "Stephanie Juice"
+date: "2023-12-05"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r Remove all functions clear memory}
+rm(list=ls(all=TRUE)) 
+```
+
+```{r Load Packages}
+
+library(tidyverse) # year
+library(dplyr) # select, pipes
+library(plyr) # mutate
+library(readxl)
+library(nlme) # lme
+library(piecewiseSEM) # rsquared
+library(car) # Anova
+library(predictmeans) # CookD
+
+```
+
+
+```{r Load Field Data}
+
+# set your working directory
+setwd()
+
+# read in the data
+field_dat <- read_excel("2023-11-13 - Exudates-enzymes-roots-ANPP.xlsx", sheet = "daily_crop_x_plot")
+
+```
+
+
+```{r Calculate AG per specific exudation}
+
+# based on Adam's figure 3 (EEA in nmol/g/h divided by specific exudation in mg C/m2 root/d)
+
+# remove unfertilized sorghum from data (in 2019, sorghum has data for +N and -N)
+# calculate AG/exudation, create year column
+# NOTE: MG has 0 exudation on 4 dates, causing infinite values in our calculations, removed here
+figdat_EEA <-
+  field_dat %>% 
+  filter(N_rate != "0") %>% 
+  mutate(AG_per_Exud = AG_nmol_g_hr/Exudate_C_mg_m2_root_day,
+         Yr = year(Date))%>% 
+  filter_if(~is.numeric(.), all_vars(!is.infinite(.)))
+
+```
+
+
+```{r Statistics AG per Specific Exudation}
+
+# Set up codes for dates to use as a random effect
+date_codes <-
+  unique(figdat_EEA[, "Date"]) %>% 
+  mutate(Date_code = c("Jul18", "Aug18", "Jul19", "Aug19"))
+
+# prepare datatable for statistics
+statdat <- 
+  figdat_EEA %>% 
+  select(Date:Crop, AG_per_Exud:Yr) %>% 
+  left_join(date_codes) # date codes to use date as random effect
+
+
+### AG model
+
+# look at the data
+hist(statdat$AG_per_Exud) # possible outliers
+
+# model the data
+# linear mixed effects model with nested random effects (Date is nested in Block)
+AG.m1 <- lme(AG_per_Exud ~ Crop, random = ~1|Block/Date_code, data = statdat, na.action = na.exclude)
+
+# Plot cook's distance to check for outliers
+# If Cook's distance > 1, that point may be considered an outlier
+CookD(AG.m1)
+
+# the highest data point has cook's distance >1, so will remove that from data set 
+statdat_noout <- 
+  statdat %>% 
+  filter(AG_per_Exud < max(AG_per_Exud)) 
+
+# look at the data without the outlier 
+hist(statdat_noout$AG_per_Exud)
+
+# model it again without the outlier
+AG.m2 <- lme(AG_per_Exud ~ Crop, random = ~1|Block/Date_code, data = statdat_noout, na.action = na.exclude)
+
+# Save the residuals to the datatable
+statdat_noout$resid_AG.m2<-residuals(AG.m2, type = "normalized")
+
+# do the ANOVA on the model
+Anova(AG.m2)
+
+# R2 value
+rsquared(AG.m2) 
+
+
+# check the assumptions of the model - examine distribution of residuals
+
+# residuals vs fitted values
+plot(AG.m2)
+
+# Check normality of residuals
+par(mfrow=c(1,2))
+qqnorm(statdat_noout$resid_AG.m2)
+qqline(statdat_noout$resid_AG.m2)
+hist(statdat_noout$resid_AG.m2)
+
+# Boxplot of residuals by fixed effect
+ggplot(statdat_noout, aes(x = Crop, y = resid_AG.m2))+
+  geom_boxplot()+
+  ggtitle("Residuals by Crop")
+
+
+```
+
